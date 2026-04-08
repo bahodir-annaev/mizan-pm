@@ -53,7 +53,7 @@ export class UserController {
   }
 
   @Get()
-  @ApiOperation({ summary: 'Get all users (paginated)' }}
+  @ApiOperation({ summary: 'Get all users (paginated)' })
   async findAll(@Query() query: PaginationQueryDto) {
     return this.userService.findAll(query);
   }
