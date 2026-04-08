@@ -1,0 +1,45 @@
+stateDiagram-v2
+    [*] --> todo : Task Created
+
+    todo --> in_progress : Start Work
+    todo --> cancelled : Cancel Task
+
+    in_progress --> in_review : Submit for Review
+    in_progress --> todo : Pause / Reset
+    in_progress --> cancelled : Cancel Task
+
+    in_review --> done : Approve / Complete
+    in_review --> in_progress : Request Changes
+
+    done --> in_progress : Reopen Task
+
+    cancelled --> todo : Restore Task
+
+    note right of todo
+        Default status on creation.
+        No time tracking active.
+    end note
+
+    note right of in_progress
+        At least one assignee
+        is actively working.
+        Time tracking allowed.
+    end note
+
+    note right of in_review
+        Work submitted for
+        review by manager
+        or lead.
+    end note
+
+    note right of done
+        All work completed.
+        Running timers auto-stopped.
+        Can be reopened if needed.
+    end note
+
+    note right of cancelled
+        Task abandoned.
+        Children also cancelled
+        (cascade). Can be restored.
+    end note

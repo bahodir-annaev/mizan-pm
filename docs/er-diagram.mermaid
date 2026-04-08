@@ -1,0 +1,140 @@
+erDiagram
+    users {
+        UUID id PK
+        VARCHAR email UK
+        VARCHAR password_hash
+        VARCHAR first_name
+        VARCHAR last_name
+        VARCHAR avatar_url
+        BOOLEAN is_active
+        TIMESTAMPTZ last_login_at
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+        TIMESTAMPTZ deleted_at
+    }
+
+    roles {
+        UUID id PK
+        VARCHAR name UK
+        VARCHAR description
+        BOOLEAN is_system
+        TIMESTAMPTZ created_at
+    }
+
+    permissions {
+        UUID id PK
+        VARCHAR name UK
+        VARCHAR description
+        VARCHAR resource
+        VARCHAR action
+    }
+
+    role_permissions {
+        UUID role_id PK,FK
+        UUID permission_id PK,FK
+    }
+
+    user_roles {
+        UUID user_id PK,FK
+        UUID role_id PK,FK
+        TIMESTAMPTZ assigned_at
+        UUID assigned_by FK
+    }
+
+    teams {
+        UUID id PK
+        VARCHAR name
+        TEXT description
+        UUID created_by FK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+        TIMESTAMPTZ deleted_at
+    }
+
+    team_memberships {
+        UUID id PK
+        UUID team_id FK
+        UUID user_id FK
+        ENUM team_role
+        TIMESTAMPTZ joined_at
+    }
+
+    projects {
+        UUID id PK
+        VARCHAR name
+        TEXT description
+        ENUM status
+        DATE start_date
+        DATE due_date
+        UUID team_id FK
+        UUID created_by FK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+        TIMESTAMPTZ deleted_at
+    }
+
+    tasks {
+        UUID id PK
+        VARCHAR title
+        TEXT description
+        ENUM status
+        ENUM priority
+        DATE start_date
+        DATE due_date
+        UUID parent_id FK
+        VARCHAR materialized_path
+        INTEGER depth
+        INTEGER position
+        UUID project_id FK
+        UUID created_by FK
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+        TIMESTAMPTZ deleted_at
+    }
+
+    task_assignees {
+        UUID id PK
+        UUID task_id FK
+        UUID user_id FK
+        TIMESTAMPTZ assigned_at
+        UUID assigned_by FK
+    }
+
+    time_entries {
+        UUID id PK
+        UUID task_id FK
+        UUID user_id FK
+        TIMESTAMPTZ start_time
+        TIMESTAMPTZ end_time
+        INTEGER duration_seconds
+        VARCHAR description
+        BOOLEAN is_manual
+        TIMESTAMPTZ created_at
+        TIMESTAMPTZ updated_at
+    }
+
+    activity_log {
+        UUID id PK
+        UUID actor_id FK
+        VARCHAR action
+        VARCHAR entity_type
+        UUID entity_id
+        JSONB metadata
+        TIMESTAMPTZ created_at
+    }
+
+    users ||--o{ user_roles : "has"
+    roles ||--o{ user_roles : "assigned to"
+    roles ||--o{ role_permissions : "grants"
+    permissions ||--o{ role_permissions : "included in"
+    users ||--o{ team_memberships : "belongs to"
+    teams ||--o{ team_memberships : "contains"
+    teams ||--o{ projects : "owns"
+    users ||--o{ projects : "creates"
+    projects ||--o{ tasks : "contains"
+    tasks ||--o{ tasks : "parent of"
+    tasks ||--o{ task_assignees : "assigned to"
+    users ||--o{ task_assignees : "works on"
+    tasks ||--o{ time_entries : "tracked on"
+    users ||--o{ time_entries : "tracks"
+    users ||--o{ activity_log : "performs"

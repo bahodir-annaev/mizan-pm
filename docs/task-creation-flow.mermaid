@@ -1,0 +1,75 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant TC as TaskController
+    participant PG as PermissionsGuard
+    participant TS as TaskService
+    participant TR as TaskRepository
+    participant PR as ProjectRepository
+    participant EE as EventEmitter
+    participant AL as ActivityLogger
+    participant DB as PostgreSQL
+
+    C->>TC: POST /api/v1/tasks {title, description, start_date, due_date, project_id, parent_id?}
+    TC->>TC: Validate CreateTaskDto (class-validator)
+
+    alt Validation fails
+        TC-->>C: 400 {errors: [...validation errors]}
+    end
+
+    TC->>PG: Check permissions
+    PG->>PG: Verify JWT + role >= Member
+    PG->>DB: Check user belongs to project's team
+    
+    alt Not authorized
+        PG-->>C: 403 {error: "Forbidden"}
+    end
+
+    TC->>TS: createTask(dto, currentUser)
+    TS->>PR: findById(dto.project_id)
+    
+    alt Project not found
+        TS-->>TC: throw NotFoundException
+        TC-->>C: 404 {error: "Project not found"}
+    end
+
+    alt Has parent_id
+        TS->>TR: findById(dto.parent_id)
+        
+        alt Parent not found
+            TS-->>TC: throw NotFoundException
+            TC-->>C: 404 {error: "Parent task not found"}
+        end
+
+        TS->>TS: Verify parent.project_id === dto.project_id
+        
+        alt Project mismatch
+            TS-->>TC: throw BadRequestException
+            TC-->>C: 400 {error: "Parent must be in same project"}
+        end
+
+        TS->>TS: Compute materialized_path = parent.path + "." + parent.id
+        TS->>TS: Set depth = parent.depth + 1
+    else No parent_id (top-level task)
+        TS->>TS: Set materialized_path = ""
+        TS->>TS: Set depth = 0
+    end
+
+    TS->>TR: getMaxPosition(project_id, parent_id)
+    TR->>DB: SELECT MAX(position) FROM tasks WHERE project_id=? AND parent_id=?
+    DB-->>TR: maxPosition
+    TR-->>TS: maxPosition
+    TS->>TS: Set position = (maxPosition ?? -1) + 1
+
+    TS->>TS: Create Task entity {title, description, dates, path, depth, position, status: 'todo'}
+    TS->>TR: save(task)
+    TR->>DB: INSERT INTO tasks (...)
+    DB-->>TR: Created task
+    TR-->>TS: Task entity with ID
+
+    TS->>EE: emit('task.created', {task, actor: currentUser})
+    EE->>AL: handle TaskCreated event
+    AL->>DB: INSERT INTO activity_log {actor_id, action: 'created', entity_type: 'task', entity_id}
+
+    TS-->>TC: Task entity
+    TC-->>C: 201 {data: task}

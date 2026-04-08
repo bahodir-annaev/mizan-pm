@@ -1,0 +1,11 @@
+export { RegisterDto } from './register.dto';
+export { LoginDto } from './login.dto';
+export { TokenResponseDto } from './token-response.dto';
+export { UpdateUserDto } from './update-user.dto';
+export { ChangePasswordDto } from './change-password.dto';
+export { ForgotPasswordDto } from './forgot-password.dto';
+export { ResetPasswordDto } from './reset-password.dto';
+export { AssignRoleDto } from './assign-role.dto';
+export { CreateUserDto } from './create-user.dto';
+export { UpdateUserStatusDto } from './update-user-status.dto';
+export { UpdatePreferencesDto } from './update-preferences.dto';

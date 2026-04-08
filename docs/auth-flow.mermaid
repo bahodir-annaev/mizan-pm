@@ -1,0 +1,80 @@
+sequenceDiagram
+    autonumber
+    participant C as Client (React SPA)
+    participant AC as AuthController
+    participant AS as AuthService
+    participant UR as UserRepository
+    participant JWT as JwtService
+    participant DB as PostgreSQL
+
+    Note over C,DB: === LOGIN FLOW ===
+
+    C->>AC: POST /api/v1/auth/login {email, password}
+    AC->>AS: login(email, password)
+    AS->>UR: findByEmail(email)
+    UR->>DB: SELECT * FROM users WHERE email = ?
+    DB-->>UR: User record
+    UR-->>AS: User entity
+
+    alt User not found
+        AS-->>AC: throw UnauthorizedException
+        AC-->>C: 401 {error: "Invalid credentials"}
+    end
+
+    AS->>AS: bcrypt.compare(password, user.password_hash)
+
+    alt Password mismatch
+        AS-->>AC: throw UnauthorizedException
+        AC-->>C: 401 {error: "Invalid credentials"}
+    end
+
+    AS->>JWT: sign({sub: user.id, roles}, {expiresIn: '15m'})
+    JWT-->>AS: accessToken
+    AS->>JWT: sign({sub: user.id, jti: uuid}, {expiresIn: '7d'})
+    JWT-->>AS: refreshToken
+    AS->>DB: UPDATE users SET last_login_at = NOW()
+    AS->>DB: INSERT INTO refresh_tokens (user_id, token_hash)
+    AS-->>AC: {accessToken, refreshToken, user}
+    AC-->>C: 200 {accessToken, user} + Set-Cookie: refreshToken (HttpOnly, Secure)
+
+    Note over C,DB: === PROTECTED REQUEST FLOW ===
+
+    C->>AC: GET /api/v1/projects (Authorization: Bearer <token>)
+    AC->>AC: JwtAuthGuard intercepts
+
+    alt Token expired or invalid
+        AC-->>C: 401 {error: "Unauthorized"}
+    end
+
+    AC->>JWT: verify(token)
+    JWT-->>AC: payload {sub, roles}
+    AC->>UR: findById(payload.sub)
+    UR-->>AC: User entity
+    AC->>AC: RolesGuard: check user.roles >= required
+    AC->>AC: PermissionsGuard: check specific permissions
+
+    alt Insufficient permissions
+        AC-->>C: 403 {error: "Forbidden"}
+    end
+
+    AC->>AC: Execute route handler
+    AC-->>C: 200 {data: [...projects]}
+
+    Note over C,DB: === TOKEN REFRESH FLOW ===
+
+    C->>AC: POST /api/v1/auth/refresh (Cookie: refreshToken)
+    AC->>AS: refreshTokens(refreshToken)
+    AS->>JWT: verify(refreshToken)
+    AS->>DB: SELECT * FROM refresh_tokens WHERE token_hash = ?
+
+    alt Token revoked or invalid
+        AS-->>AC: throw UnauthorizedException
+        AC-->>C: 401 {error: "Invalid refresh token"}
+    end
+
+    AS->>DB: DELETE FROM refresh_tokens WHERE id = ? (rotate)
+    AS->>JWT: sign(newAccessPayload)
+    AS->>JWT: sign(newRefreshPayload)
+    AS->>DB: INSERT INTO refresh_tokens (new token hash)
+    AS-->>AC: {accessToken, refreshToken}
+    AC-->>C: 200 {accessToken} + Set-Cookie: new refreshToken

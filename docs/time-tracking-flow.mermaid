@@ -1,0 +1,94 @@
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant TTC as TimeTrackingController
+    participant TTS as TimeTrackingService
+    participant TER as TimeEntryRepository
+    participant TAR as TaskAssigneeRepository
+    participant EE as EventEmitter
+    participant DB as PostgreSQL
+
+    Note over C,DB: === START TIMER ===
+
+    C->>TTC: POST /api/v1/tasks/:taskId/time/start
+    TTC->>TTS: startTimer(taskId, currentUser)
+
+    TTS->>TAR: isUserAssigned(taskId, userId)
+    TAR->>DB: SELECT FROM task_assignees WHERE task_id=? AND user_id=?
+    DB-->>TAR: Result
+
+    alt Not assigned and not Manager+
+        TTS-->>TTC: throw ForbiddenException
+        TTC-->>C: 403 {error: "Must be assigned to task or have manager role"}
+    end
+
+    TTS->>TER: findActiveByUser(userId)
+    TER->>DB: SELECT * FROM time_entries WHERE user_id=? AND end_time IS NULL
+    DB-->>TER: Active entry or null
+
+    alt Has active timer on ANOTHER task
+        TTS-->>TTC: throw ConflictException
+        TTC-->>C: 409 {error: "Active timer exists", data: {activeEntry}}
+    end
+
+    alt Has active timer on SAME task
+        TTS-->>TTC: throw ConflictException
+        TTC-->>C: 409 {error: "Timer already running on this task"}
+    end
+
+    TTS->>TTS: Create TimeEntry {task_id, user_id, start_time: NOW()}
+    TTS->>TER: save(timeEntry)
+    TER->>DB: INSERT INTO time_entries (task_id, user_id, start_time)
+    DB-->>TER: Created entry
+    TER-->>TTS: TimeEntry entity
+
+    TTS->>EE: emit('time.started', {entry, user})
+    TTS-->>TTC: TimeEntry
+    TTC-->>C: 201 {data: timeEntry}
+
+    Note over C,DB: === STOP TIMER ===
+
+    C->>TTC: POST /api/v1/tasks/:taskId/time/stop
+    TTC->>TTS: stopTimer(taskId, currentUser)
+
+    TTS->>TER: findActiveByUserAndTask(userId, taskId)
+    TER->>DB: SELECT * FROM time_entries WHERE user_id=? AND task_id=? AND end_time IS NULL
+    DB-->>TER: Active entry or null
+
+    alt No active timer on this task
+        TTS-->>TTC: throw NotFoundException
+        TTC-->>C: 404 {error: "No active timer on this task"}
+    end
+
+    TTS->>TTS: Set end_time = NOW()
+    TTS->>TTS: Compute duration_seconds = EXTRACT(EPOCH FROM end_time - start_time)
+    TTS->>TER: save(updatedEntry)
+    TER->>DB: UPDATE time_entries SET end_time=?, duration_seconds=? WHERE id=?
+    DB-->>TER: Updated entry
+    TER-->>TTS: TimeEntry entity
+
+    TTS->>EE: emit('time.stopped', {entry, duration})
+    TTS-->>TTC: TimeEntry with duration
+    TTC-->>C: 200 {data: timeEntry}
+
+    Note over C,DB: === FORCE STOP & START (switch tasks) ===
+
+    C->>TTC: POST /api/v1/tasks/:newTaskId/time/start?force=true
+    TTC->>TTS: startTimer(newTaskId, currentUser, force=true)
+
+    TTS->>TER: findActiveByUser(userId)
+    TER-->>TTS: Active entry on oldTask
+
+    alt force=true and active timer exists
+        TTS->>TTS: Stop active timer (compute duration)
+        TTS->>TER: save(stoppedEntry)
+        TER->>DB: UPDATE time_entries SET end_time=NOW(), duration_seconds=...
+        TTS->>EE: emit('time.stopped', {oldEntry})
+    end
+
+    TTS->>TTS: Create new TimeEntry for newTask
+    TTS->>TER: save(newEntry)
+    TER->>DB: INSERT INTO time_entries (...)
+    TTS->>EE: emit('time.started', {newEntry})
+    TTS-->>TTC: {stopped: oldEntry, started: newEntry}
+    TTC-->>C: 201 {data: {stopped: oldEntry, started: newEntry}}
