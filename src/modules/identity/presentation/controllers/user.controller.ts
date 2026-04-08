@@ -53,8 +53,7 @@ export class UserController {
   }
 
   @Get()
-  @Roles('admin')
-  @ApiOperation({ summary: 'Get all users (paginated, admin+)' })
+  @ApiOperation({ summary: 'Get all users (paginated)' }}
   async findAll(@Query() query: PaginationQueryDto) {
     return this.userService.findAll(query);
   }
