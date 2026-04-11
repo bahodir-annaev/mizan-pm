@@ -8,6 +8,9 @@ export class Team extends AggregateRoot {
   @Column()
   name: string;
 
+  @Column({ length: 10, nullable: true, unique: true })
+  code: string | null;
+
   @Column({ type: 'text', nullable: true })
   description: string | null;
 

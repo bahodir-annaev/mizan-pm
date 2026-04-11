@@ -2,6 +2,7 @@ import { Entity, Column, OneToMany, ManyToOne, JoinColumn } from 'typeorm';
 import { AggregateRoot } from '../../../../shared/domain/aggregate-root';
 import { UserRole } from './user-role.entity';
 import { EmployeeStatus } from './employee-status.enum';
+import { EmploymentType } from './employment-type.enum';
 import { Exclude } from 'class-transformer';
 import { Organization } from '../../../organization/domain/entities/organization.entity';
 
@@ -73,6 +74,15 @@ export class User extends AggregateRoot {
 
   @Column({ name: 'password_reset_expires', nullable: true })
   passwordResetExpires: Date | null;
+
+  @Column({ name: 'salary_uzs', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  salaryUzs: number | null;
+
+  @Column({ name: 'employment_type', type: 'enum', enum: EmploymentType, nullable: true })
+  employmentType: EmploymentType | null;
+
+  @Column({ name: 'is_production_employee', default: true })
+  isProductionEmployee: boolean;
 
   @OneToMany(() => UserRole, (ur) => ur.user)
   userRoles: UserRole[];

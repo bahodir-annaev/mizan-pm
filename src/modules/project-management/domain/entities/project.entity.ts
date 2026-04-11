@@ -93,6 +93,18 @@ export class Project extends AggregateRoot {
   @JoinColumn({ name: 'created_by' })
   creator: User;
 
+  @Column({ name: 'contract_value_uzs', type: 'decimal', precision: 15, scale: 2, nullable: true })
+  contractValueUzs: number | null;
+
+  @Column({ name: 'contract_value_usd', type: 'decimal', precision: 12, scale: 2, nullable: true })
+  contractValueUsd: number | null;
+
+  @Column({ name: 'contract_signed_date', type: 'date', nullable: true })
+  contractSignedDate: Date | null;
+
+  @Column({ name: 'risk_coefficient', type: 'decimal', precision: 5, scale: 3, default: 1.150, nullable: true })
+  riskCoefficient: number | null;
+
   @OneToMany(() => Task, (task) => task.project)
   tasks: Task[];
 }

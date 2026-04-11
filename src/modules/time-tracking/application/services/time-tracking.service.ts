@@ -5,6 +5,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  Optional,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -24,9 +25,11 @@ import {
   PaginatedResult,
   PaginationMeta,
 } from '../../../../shared/application/pagination.dto';
+import { FinanceCalculationService } from '../../../finance/application/services/finance-calculation.service';
 
 interface CurrentUser {
   id: string;
+  orgId?: string;
   roles: string[];
 }
 
@@ -40,6 +43,8 @@ export class TimeTrackingService {
     @InjectRepository(TaskAssignee)
     private readonly taskAssigneeRepo: Repository<TaskAssignee>,
     private readonly eventEmitter: EventEmitter2,
+    @Optional()
+    private readonly financeCalcService?: FinanceCalculationService,
   ) {}
 
   async startTimer(
@@ -102,6 +107,9 @@ export class TimeTrackingService {
       entry: saved,
       duration: saved.durationSeconds,
     });
+
+    // Stamp cost asynchronously — non-blocking, failures don't affect the entry
+    this.stampEntryCost(saved, currentUser.orgId).catch(() => undefined);
 
     return saved;
   }
@@ -185,7 +193,12 @@ export class TimeTrackingService {
     entry.isManual = true;
     entry.description = dto.description ?? null;
 
-    return this.timeEntryRepository.save(entry);
+    const saved = await this.timeEntryRepository.save(entry);
+
+    // Stamp cost asynchronously — non-blocking
+    this.stampEntryCost(saved, currentUser.orgId).catch(() => undefined);
+
+    return saved;
   }
 
   async updateEntry(
@@ -277,5 +290,36 @@ export class TimeTrackingService {
       (entry.endTime.getTime() - entry.startTime.getTime()) / 1000,
     );
     return entry;
+  }
+
+  /** Insert a time_entry_costs row for the given entry. Called fire-and-forget. */
+  private async stampEntryCost(entry: TimeEntry, orgId?: string): Promise<void> {
+    if (!this.financeCalcService) return;
+    const hours = entry.hours ?? (entry.durationSeconds ? entry.durationSeconds / 3600 : null);
+    if (!hours) return;
+
+    const entryDate = entry.date ?? entry.startTime?.toISOString().split('T')[0];
+    if (!entryDate) return;
+
+    const rateRow = await this.financeCalcService.getEffectiveHourlyRate(entry.userId, entryDate);
+    if (!rateRow) return;
+
+    const exchangeRate = orgId
+      ? await this.financeCalcService.getEffectiveExchangeRate(orgId, entryDate)
+      : null;
+
+    const costUzs = hours * rateRow.hourlyRateUzs;
+    const costUsd = exchangeRate ? costUzs / exchangeRate : null;
+
+    await this.financeCalcService['dataSource'].query(
+      `INSERT INTO time_entry_costs
+         (id, time_entry_id, user_id, project_id, org_id,
+          hourly_rate_uzs_at_entry, cost_uzs, cost_usd,
+          exchange_rate_at_entry, calculated_at, source)
+       VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, $7, $8, NOW(), 'REALTIME')
+       ON CONFLICT (time_entry_id) DO NOTHING`,
+      [entry.id, entry.userId, entry.projectId ?? null, orgId ?? null,
+       rateRow.hourlyRateUzs, costUzs, costUsd, exchangeRate],
+    );
   }
 }

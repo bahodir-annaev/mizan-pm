@@ -84,4 +84,52 @@ export class AnalyticsController {
   ) {
     return this.analyticsService.getRecentlyCompleted(user.orgId, limit);
   }
+
+  @Get('finance-overview')
+  @Roles('manager')
+  async getFinanceOverview(
+    @CurrentUser() user: any,
+    @Query('year', new DefaultValuePipe(0), ParseIntPipe) year: number,
+    @Query('month', new DefaultValuePipe(0), ParseIntPipe) month: number,
+  ) {
+    return this.analyticsService.getFinanceOverview(user.orgId, year || undefined, month || undefined);
+  }
+
+  @Get('project-profitability')
+  @Roles('manager')
+  async getProjectProfitability(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+  ) {
+    return this.analyticsService.getProjectProfitability(user.orgId, status);
+  }
+
+  @Get('employee-cost-breakdown')
+  @Roles('manager')
+  async getEmployeeCostBreakdown(
+    @CurrentUser() user: any,
+    @Query('year', new DefaultValuePipe(0), ParseIntPipe) year: number,
+    @Query('month', new DefaultValuePipe(0), ParseIntPipe) month: number,
+  ) {
+    return this.analyticsService.getEmployeeCostBreakdown(user.orgId, year || undefined, month || undefined);
+  }
+
+  @Get('plan-vs-fact')
+  @Roles('manager')
+  async getPlanVsFact(
+    @CurrentUser() user: any,
+    @Query('status') status?: string,
+  ) {
+    return this.analyticsService.getPlanVsFact(user.orgId, status);
+  }
+
+  @Get('department-cost')
+  @Roles('manager')
+  async getDepartmentCost(
+    @CurrentUser() user: any,
+    @Query('year', new DefaultValuePipe(0), ParseIntPipe) year: number,
+    @Query('month', new DefaultValuePipe(0), ParseIntPipe) month: number,
+  ) {
+    return this.analyticsService.getDepartmentCost(user.orgId, year || undefined, month || undefined);
+  }
 }

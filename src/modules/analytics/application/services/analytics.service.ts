@@ -453,6 +453,230 @@ export class AnalyticsService {
     };
   }
 
+  async getFinanceOverview(orgId: string, year?: number, month?: number): Promise<any> {
+    const now = new Date();
+    const y = year || now.getFullYear();
+    const m = month || now.getMonth() + 1;
+
+    const [payroll] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(cost_uzs), 0)::float AS total
+       FROM user_monthly_allocation
+       WHERE org_id = $1 AND period_year = $2 AND period_month = $3`,
+      [orgId, y, m],
+    );
+
+    const [overhead] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(amount_uzs), 0)::float AS total
+       FROM overhead_costs
+       WHERE org_id = $1 AND period_year = $2 AND period_month = $3 AND deleted_at IS NULL`,
+      [orgId, y, m],
+    );
+
+    const [equipment] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(monthly_amortization_uzs), 0)::float AS total
+       FROM equipment
+       WHERE org_id = $1 AND is_active = true AND deleted_at IS NULL`,
+      [orgId],
+    );
+
+    const [contracts] = await this.dataSource.query(
+      `SELECT COALESCE(SUM(contract_value_uzs), 0)::float AS total
+       FROM projects
+       WHERE org_id = $1 AND deleted_at IS NULL AND contract_value_uzs IS NOT NULL`,
+      [orgId],
+    );
+
+    const payrollTotal: number = payroll.total;
+    const overheadTotal: number = overhead.total;
+    const equipmentTotal: number = equipment.total;
+    const totalCost = payrollTotal + overheadTotal + equipmentTotal;
+    const contractTotal: number = contracts.total;
+    const grossProfit = contractTotal - totalCost;
+    const grossMarginPct = contractTotal > 0 ? (grossProfit / contractTotal) * 100 : null;
+
+    return {
+      periodYear: y,
+      periodMonth: m,
+      totalPayrollCostUzs: payrollTotal,
+      totalOverheadUzs: overheadTotal,
+      totalEquipmentAmortizationUzs: equipmentTotal,
+      totalCostUzs: totalCost,
+      totalContractValueUzs: contractTotal,
+      grossProfitUzs: grossProfit,
+      grossMarginPct,
+    };
+  }
+
+  async getProjectProfitability(orgId: string, status?: string): Promise<any[]> {
+    const params: any[] = [orgId];
+    const statusFilter = status ? `AND p.status = $2` : '';
+    if (status) params.push(status);
+
+    const rows = await this.dataSource.query(
+      `SELECT
+         p.id AS project_id,
+         p.name AS project_name,
+         p.progress AS completion_pct,
+         p.contract_value_uzs,
+         pfp.mizan_cost_uzs AS plan_cost,
+         COALESCE(pmc_sum.actual_cost, 0) AS actual_cost_to_date
+       FROM projects p
+       LEFT JOIN project_financial_plan pfp ON pfp.project_id = p.id AND pfp.is_current = true AND pfp.deleted_at IS NULL
+       LEFT JOIN (
+         SELECT project_id, SUM(total_cost_uzs) AS actual_cost
+         FROM project_monthly_costs
+         WHERE deleted_at IS NULL
+         GROUP BY project_id
+       ) pmc_sum ON pmc_sum.project_id = p.id
+       WHERE p.org_id = $1 AND p.deleted_at IS NULL
+         ${statusFilter}
+       ORDER BY p.name`,
+      params,
+    );
+
+    return rows.map((r: any) => {
+      const contractValue = parseFloat(r.contract_value_uzs) || 0;
+      const planCost = parseFloat(r.plan_cost) || 0;
+      const actualCost = parseFloat(r.actual_cost_to_date) || 0;
+      const plannedMarginPct = contractValue > 0 ? ((contractValue - planCost) / contractValue) * 100 : null;
+      const currentMarginPct = contractValue > 0 ? ((contractValue - actualCost) / contractValue) * 100 : null;
+      return {
+        projectId: r.project_id,
+        projectName: r.project_name,
+        contractValueUzs: contractValue,
+        mizanCostPlan: planCost,
+        actualCostToDate: actualCost,
+        plannedMarginPct,
+        currentMarginPct,
+        completionPct: r.completion_pct,
+      };
+    });
+  }
+
+  async getEmployeeCostBreakdown(orgId: string, year?: number, month?: number): Promise<any[]> {
+    const now = new Date();
+    const y = year || now.getFullYear();
+    const m = month || now.getMonth() + 1;
+
+    const rows = await this.dataSource.query(
+      `SELECT
+         u.id AS user_id,
+         CONCAT(u.first_name, ' ', u.last_name) AS user_name,
+         u.department,
+         uma.hours_logged,
+         uma.hourly_rate_uzs_snapshot,
+         uma.cost_uzs,
+         uma.cost_usd,
+         project_count.cnt AS projects_worked_on
+       FROM users u
+       JOIN user_monthly_allocation uma ON uma.user_id = u.id
+         AND uma.org_id = $1
+         AND uma.period_year = $2
+         AND uma.period_month = $3
+       LEFT JOIN (
+         SELECT user_id, COUNT(DISTINCT project_id)::int AS cnt
+         FROM user_monthly_allocation
+         WHERE org_id = $1 AND period_year = $2 AND period_month = $3
+         GROUP BY user_id
+       ) project_count ON project_count.user_id = u.id
+       WHERE u.deleted_at IS NULL
+       ORDER BY uma.cost_uzs DESC`,
+      [orgId, y, m],
+    );
+
+    return rows.map((r: any) => ({
+      userId: r.user_id,
+      userName: r.user_name,
+      department: r.department,
+      hourlyRateUzs: parseFloat(r.hourly_rate_uzs_snapshot) || 0,
+      totalHoursMonth: parseFloat(r.hours_logged) || 0,
+      totalCostUzs: parseFloat(r.cost_uzs) || 0,
+      totalCostUsd: r.cost_usd ? parseFloat(r.cost_usd) : null,
+      projectsWorkedOn: r.projects_worked_on || 0,
+    }));
+  }
+
+  async getPlanVsFact(orgId: string, status?: string): Promise<any[]> {
+    const params: any[] = [orgId];
+    const statusFilter = status ? 'AND p.status = $2' : '';
+    if (status) params.push(status);
+
+    const rows = await this.dataSource.query(
+      `SELECT
+         p.id AS project_id,
+         p.name AS project_name,
+         p.progress,
+         pfp.mizan_cost_uzs AS plan_uzs,
+         COALESCE(fact.fact_total, 0) AS fact_uzs,
+         fact.month_count
+       FROM projects p
+       LEFT JOIN project_financial_plan pfp ON pfp.project_id = p.id AND pfp.is_current = true AND pfp.deleted_at IS NULL
+       LEFT JOIN (
+         SELECT project_id,
+                SUM(total_cost_uzs) AS fact_total,
+                COUNT(DISTINCT (period_year, period_month)) AS month_count
+         FROM project_monthly_costs
+         WHERE deleted_at IS NULL
+         GROUP BY project_id
+       ) fact ON fact.project_id = p.id
+       WHERE p.org_id = $1 AND p.deleted_at IS NULL
+         ${statusFilter}
+       ORDER BY p.name`,
+      params,
+    );
+
+    return rows.map((r: any) => {
+      const planUzs = parseFloat(r.plan_uzs) || 0;
+      const factUzs = parseFloat(r.fact_uzs) || 0;
+      const monthCount = parseInt(r.month_count, 10) || 1;
+      const varianceUzs = planUzs - factUzs;
+      const variancePct = planUzs > 0 ? (varianceUzs / planUzs) * 100 : null;
+      const progress = r.progress || 0;
+      const estimatedFinalCostUzs = progress > 0 ? (factUzs / progress) * 100 : null;
+      return {
+        projectId: r.project_id,
+        projectName: r.project_name,
+        planUzs,
+        factToDateUzs: factUzs,
+        varianceUzs,
+        variancePct,
+        monthsElapsed: monthCount,
+        estimatedFinalCostUzs,
+      };
+    });
+  }
+
+  async getDepartmentCost(orgId: string, year?: number, month?: number): Promise<any[]> {
+    const now = new Date();
+    const y = year || now.getFullYear();
+    const m = month || now.getMonth() + 1;
+
+    const rows = await this.dataSource.query(
+      `SELECT
+         COALESCE(u.department, 'Unknown') AS department,
+         COUNT(DISTINCT u.id)::int AS employee_count,
+         SUM(uma.hours_logged)::float AS total_hours,
+         SUM(uma.cost_uzs)::float AS total_cost_uzs,
+         (SUM(uma.cost_uzs) / NULLIF(SUM(uma.hours_logged), 0))::float AS avg_hourly_rate_uzs
+       FROM users u
+       JOIN user_monthly_allocation uma ON uma.user_id = u.id
+         AND uma.period_year = $2
+         AND uma.period_month = $3
+       WHERE u.org_id = $1 AND u.deleted_at IS NULL
+       GROUP BY u.department
+       ORDER BY total_cost_uzs DESC`,
+      [orgId, y, m],
+    );
+
+    return rows.map((r: any) => ({
+      department: r.department,
+      employeeCount: r.employee_count,
+      totalHours: r.total_hours || 0,
+      totalCostUzs: r.total_cost_uzs || 0,
+      avgHourlyRateUzs: r.avg_hourly_rate_uzs || 0,
+    }));
+  }
+
   async getRecentlyCompleted(orgId?: string, limit = 10): Promise<any[]> {
     const orgFilter = orgId
       ? 'AND p.org_id = $2'

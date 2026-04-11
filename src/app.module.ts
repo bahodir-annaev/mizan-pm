@@ -17,6 +17,7 @@ import { AnalyticsModule } from './modules/analytics/analytics.module';
 import { SearchModule } from './modules/search/search.module';
 import { RealtimeModule } from './modules/realtime/realtime.module';
 import { SharedModule } from './shared/shared.module';
+import { FinanceModule } from './modules/finance/finance.module';
 import { ResponseEnvelopeInterceptor } from './shared/infrastructure/response-envelope.interceptor';
 import { GlobalExceptionFilter } from './shared/infrastructure/http-exception.filter';
 import { HealthController } from './health/health.controller';
@@ -58,6 +59,7 @@ import { HealthController } from './health/health.controller';
     SearchModule,
     RealtimeModule,
     SharedModule,
+    FinanceModule,
   ],
   controllers: [HealthController],
   providers: [

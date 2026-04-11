@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { TimeEntry } from './domain/entities/time-entry.entity';
 import { TaskAssignee } from '../project-management/domain/entities/task-assignee.entity';
@@ -11,11 +11,13 @@ import { UserTimeController } from './presentation/controllers/user-time.control
 import { ProjectTimeReportController } from './presentation/controllers/project-time-report.controller';
 import { ActiveSessionsController } from './presentation/controllers/active-sessions.controller';
 import { IdentityModule } from '../identity/identity.module';
+import { FinanceModule } from '../finance/finance.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([TimeEntry, TaskAssignee]),
     IdentityModule,
+    forwardRef(() => FinanceModule),
   ],
   controllers: [
     TimeTrackingController,
