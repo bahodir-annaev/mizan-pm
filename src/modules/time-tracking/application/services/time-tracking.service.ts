@@ -160,6 +160,10 @@ export class TimeTrackingService {
     return this.timeEntryRepository.findActiveByUser(currentUser.id);
   }
 
+  async getActiveTimerForTask(taskId: string): Promise<TimeEntry[]> {
+    return this.timeEntryRepository.findActiveByTask(taskId);
+  }
+
   async getAllActiveSessions(currentUser: CurrentUser): Promise<TimeEntry[]> {
     const isManager = currentUser.roles.some((r) => MANAGER_ROLES.includes(r));
     if (!isManager) {

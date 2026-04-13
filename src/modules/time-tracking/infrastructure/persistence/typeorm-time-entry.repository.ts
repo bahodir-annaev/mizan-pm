@@ -49,6 +49,14 @@ export class TypeOrmTimeEntryRepository implements ITimeEntryRepository {
     });
   }
 
+  async findActiveByTask(taskId: string): Promise<TimeEntry[]> {
+    return this.repo.find({
+      where: { taskId, endTime: IsNull() },
+      relations: ['user'],
+      order: { startTime: 'ASC' },
+    });
+  }
+
   async save(entry: TimeEntry): Promise<TimeEntry> {
     return this.repo.save(entry);
   }

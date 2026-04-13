@@ -10,6 +10,7 @@ import { TimeEntryController } from './presentation/controllers/time-entry.contr
 import { UserTimeController } from './presentation/controllers/user-time.controller';
 import { ProjectTimeReportController } from './presentation/controllers/project-time-report.controller';
 import { ActiveSessionsController } from './presentation/controllers/active-sessions.controller';
+import { TaskActiveTimerController } from './presentation/controllers/task-active-timer.controller';
 import { IdentityModule } from '../identity/identity.module';
 import { FinanceModule } from '../finance/finance.module';
 
@@ -25,6 +26,7 @@ import { FinanceModule } from '../finance/finance.module';
     UserTimeController,
     ProjectTimeReportController,
     ActiveSessionsController,
+    TaskActiveTimerController,
   ],
   providers: [
     TimeTrackingService,

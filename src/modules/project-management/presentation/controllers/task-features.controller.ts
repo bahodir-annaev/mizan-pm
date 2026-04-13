@@ -12,19 +12,33 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiNoContentResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiProperty,
+  ApiExtraModels,
+  getSchemaPath,
+} from '@nestjs/swagger';
 import { TaskFeaturesService } from '../../application/services/task-features.service';
 import { CreateChecklistItemDto } from '../../application/dtos/create-checklist-item.dto';
 import { UpdateChecklistItemDto } from '../../application/dtos/update-checklist-item.dto';
 import { CreateCommentDto } from '../../application/dtos/create-comment.dto';
 import { UpdateCommentDto } from '../../application/dtos/update-comment.dto';
+import { ChecklistItemResponseDto } from '../../application/dtos/checklist-item-response.dto';
+import { CommentResponseDto } from '../../application/dtos/comment-response.dto';
 import { PaginationQueryDto } from '../../../../shared/application/pagination.dto';
+import { PaginationMetaResponseDto } from '../../../../shared/application/dtos/pagination-meta-response.dto';
 import { JwtAuthGuard } from '../../../identity/infrastructure/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../identity/infrastructure/guards/roles.guard';
 import { Roles } from '../../../identity/infrastructure/decorators/roles.decorator';
 import { CurrentUser } from '../../../identity/infrastructure/decorators/current-user.decorator';
 import { IsArray, IsString, IsUUID } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
 
 // ─── Inline body DTOs for simple payloads ───────────────────
 
@@ -41,13 +55,34 @@ class AddDependencyDto {
 }
 
 class ReorderChecklistDto {
-  @ApiProperty({
-    description: 'Ordered array of checklist item IDs',
-    type: [String],
-  })
+  @ApiProperty({ description: 'Ordered array of checklist item IDs', type: [String] })
   @IsArray()
   @IsString({ each: true })
   itemIds: string[];
+}
+
+// ─── Participant / Dependency inline response shapes ──────────
+
+class TaskParticipantResponseDto {
+  @ApiProperty({ example: 'participant-uuid', format: 'uuid' })
+  id: string;
+  @ApiProperty({ example: 'task-uuid', format: 'uuid' })
+  taskId: string;
+  @ApiProperty({ example: 'user-uuid', format: 'uuid' })
+  userId: string;
+  @ApiProperty({ example: '2026-04-01T00:00:00Z' })
+  createdAt: Date;
+}
+
+class TaskDependencyResponseDto {
+  @ApiProperty({ example: 'dep-uuid', format: 'uuid' })
+  id: string;
+  @ApiProperty({ example: 'blocked-task-uuid', format: 'uuid', description: 'Task that is blocked' })
+  taskId: string;
+  @ApiProperty({ example: 'blocker-task-uuid', format: 'uuid', description: 'Task that blocks' })
+  blockerId: string;
+  @ApiProperty({ example: '2026-04-01T00:00:00Z' })
+  createdAt: Date;
 }
 
 // ─── Controller ─────────────────────────────────────────────
@@ -56,6 +91,12 @@ class ReorderChecklistDto {
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('tasks')
+@ApiUnauthorizedResponse({ description: 'Unauthorized' })
+@ApiExtraModels(
+  ChecklistItemResponseDto, CommentResponseDto,
+  TaskParticipantResponseDto, TaskDependencyResponseDto,
+  PaginationMetaResponseDto,
+)
 export class TaskFeaturesController {
   constructor(private readonly taskFeaturesService: TaskFeaturesService) {}
 
@@ -64,6 +105,7 @@ export class TaskFeaturesController {
   @Get(':id/participants')
   @Roles('member')
   @ApiOperation({ summary: 'List participants of a task' })
+  @ApiOkResponse({ type: [TaskParticipantResponseDto] })
   async getParticipants(@Param('id', ParseUUIDPipe) id: string) {
     return this.taskFeaturesService.getParticipants(id);
   }
@@ -71,6 +113,7 @@ export class TaskFeaturesController {
   @Post(':id/participants')
   @Roles('member')
   @ApiOperation({ summary: 'Add a participant to a task' })
+  @ApiCreatedResponse({ type: TaskParticipantResponseDto })
   async addParticipant(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddParticipantDto,
@@ -82,6 +125,7 @@ export class TaskFeaturesController {
   @Roles('member')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a participant from a task' })
+  @ApiNoContentResponse()
   async removeParticipant(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('userId', ParseUUIDPipe) userId: string,
@@ -94,6 +138,7 @@ export class TaskFeaturesController {
   @Get(':id/dependencies')
   @Roles('member')
   @ApiOperation({ summary: 'List dependencies of a task' })
+  @ApiOkResponse({ type: [TaskDependencyResponseDto] })
   async getDependencies(@Param('id', ParseUUIDPipe) id: string) {
     return this.taskFeaturesService.getDependencies(id);
   }
@@ -101,6 +146,7 @@ export class TaskFeaturesController {
   @Post(':id/dependencies')
   @Roles('member')
   @ApiOperation({ summary: 'Add a dependency (blocker) to a task' })
+  @ApiCreatedResponse({ type: TaskDependencyResponseDto })
   async addDependency(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddDependencyDto,
@@ -112,6 +158,7 @@ export class TaskFeaturesController {
   @Roles('member')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a dependency' })
+  @ApiNoContentResponse()
   async removeDependency(
     @Param('depId', ParseUUIDPipe) depId: string,
   ) {
@@ -123,6 +170,7 @@ export class TaskFeaturesController {
   @Get(':id/checklist')
   @Roles('member')
   @ApiOperation({ summary: 'List checklist items for a task' })
+  @ApiOkResponse({ type: [ChecklistItemResponseDto] })
   async getChecklist(@Param('id', ParseUUIDPipe) id: string) {
     return this.taskFeaturesService.getChecklist(id);
   }
@@ -130,6 +178,7 @@ export class TaskFeaturesController {
   @Post(':id/checklist')
   @Roles('member')
   @ApiOperation({ summary: 'Add a checklist item to a task' })
+  @ApiCreatedResponse({ type: ChecklistItemResponseDto })
   async addChecklistItem(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateChecklistItemDto,
@@ -140,6 +189,7 @@ export class TaskFeaturesController {
   @Patch(':id/checklist/reorder')
   @Roles('member')
   @ApiOperation({ summary: 'Reorder checklist items' })
+  @ApiOkResponse({ type: [ChecklistItemResponseDto] })
   async reorderChecklist(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: ReorderChecklistDto,
@@ -150,6 +200,7 @@ export class TaskFeaturesController {
   @Patch(':id/checklist/:itemId')
   @Roles('member')
   @ApiOperation({ summary: 'Update a checklist item' })
+  @ApiOkResponse({ type: ChecklistItemResponseDto })
   async updateChecklistItem(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -162,6 +213,7 @@ export class TaskFeaturesController {
   @Roles('member')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove a checklist item' })
+  @ApiNoContentResponse()
   async removeChecklistItem(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('itemId', ParseUUIDPipe) itemId: string,
@@ -174,6 +226,14 @@ export class TaskFeaturesController {
   @Get(':id/comments')
   @Roles('member')
   @ApiOperation({ summary: 'List comments on a task (paginated)' })
+  @ApiOkResponse({
+    schema: {
+      properties: {
+        items: { type: 'array', items: { $ref: getSchemaPath(CommentResponseDto) } },
+        meta: { $ref: getSchemaPath(PaginationMetaResponseDto) },
+      },
+    },
+  })
   async getComments(
     @Param('id', ParseUUIDPipe) id: string,
     @Query() pagination: PaginationQueryDto,
@@ -184,6 +244,7 @@ export class TaskFeaturesController {
   @Post(':id/comments')
   @Roles('member')
   @ApiOperation({ summary: 'Add a comment to a task' })
+  @ApiCreatedResponse({ type: CommentResponseDto })
   async addComment(
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: CreateCommentDto,
@@ -195,6 +256,8 @@ export class TaskFeaturesController {
   @Patch(':id/comments/:commentId')
   @Roles('member')
   @ApiOperation({ summary: 'Update a comment (author only)' })
+  @ApiOkResponse({ type: CommentResponseDto })
+  @ApiForbiddenResponse({ description: 'Only the comment author can edit it' })
   async updateComment(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,
@@ -208,6 +271,8 @@ export class TaskFeaturesController {
   @Roles('member')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete a comment (author only)' })
+  @ApiNoContentResponse()
+  @ApiForbiddenResponse({ description: 'Only the comment author can delete it' })
   async removeComment(
     @Param('id', ParseUUIDPipe) id: string,
     @Param('commentId', ParseUUIDPipe) commentId: string,

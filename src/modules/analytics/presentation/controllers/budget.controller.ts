@@ -7,7 +7,15 @@ import {
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiBody,
+  ApiOkResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+} from '@nestjs/swagger';
 import { DataSource } from 'typeorm';
 import { JwtAuthGuard } from '../../../identity/infrastructure/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../identity/infrastructure/guards/roles.guard';
@@ -19,6 +27,7 @@ import { OrganizationService } from '../../../organization/application/services/
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('budget')
+@ApiUnauthorizedResponse({ description: 'Unauthorized' })
 export class BudgetController {
   constructor(
     private readonly dataSource: DataSource,
@@ -27,6 +36,7 @@ export class BudgetController {
 
   @Get()
   @ApiOperation({ summary: 'Get organization budget overview' })
+  @ApiOkResponse({ description: 'Returns budget limit, total used across projects, and remaining budget', schema: { example: { limit: 500000, used: 123456.78, remaining: 376543.22 } } })
   async getBudgetOverview(@CurrentUser() user: any) {
     const orgId = user.orgId;
     if (!orgId) {
@@ -49,6 +59,9 @@ export class BudgetController {
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Update organization budget limit (admin only)' })
+  @ApiBody({ schema: { type: 'object', required: ['budgetLimit'], properties: { budgetLimit: { type: 'number', example: 1000000 } } } })
+  @ApiOkResponse({ description: 'Returns the updated organization' })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async updateBudgetLimit(
     @CurrentUser() user: any,
     @Body() body: { budgetLimit: number },

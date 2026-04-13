@@ -3,7 +3,20 @@ import {
   Body, Param, Query, UseGuards,
   HttpCode, HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiQuery,
+  ApiCreatedResponse,
+  ApiOkResponse,
+  ApiNoContentResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+  ApiExtraModels,
+} from '@nestjs/swagger';
+import { OverheadCostResponseDto } from '../../application/dtos/overhead-cost-response.dto';
 import { JwtAuthGuard } from '../../../identity/infrastructure/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../identity/infrastructure/guards/roles.guard';
 import { Roles } from '../../../identity/infrastructure/decorators/roles.decorator';
@@ -18,11 +31,17 @@ import { UpdateOverheadCostDto } from '../../application/dtos/update-overhead-co
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Roles('manager')
 @Controller('finance/overhead-costs')
+@ApiUnauthorizedResponse({ description: 'Unauthorized' })
+@ApiExtraModels(OverheadCostResponseDto)
 export class OverheadCostController {
   constructor(private readonly service: OverheadCostService) {}
 
   @Get()
   @ApiOperation({ summary: 'List overhead costs' })
+  @ApiQuery({ name: 'year', required: false, type: Number })
+  @ApiQuery({ name: 'month', required: false, type: Number })
+  @ApiQuery({ name: 'category', required: false, enum: OverheadCategory })
+  @ApiOkResponse({ type: [OverheadCostResponseDto] })
   async list(
     @CurrentUser() user: any,
     @Query('year') year?: string,
@@ -34,6 +53,18 @@ export class OverheadCostController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Aggregated overhead totals per category for a period' })
+  @ApiQuery({ name: 'year', required: true, type: Number })
+  @ApiQuery({ name: 'month', required: true, type: Number })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        rent: 5000000,
+        utilities: 1200000,
+        software: 800000,
+        other: 300000,
+      },
+    },
+  })
   async summary(
     @CurrentUser() user: any,
     @Query('year') year: string,
@@ -44,6 +75,8 @@ export class OverheadCostController {
 
   @Get(':id')
   @ApiOperation({ summary: 'Get overhead cost by ID' })
+  @ApiOkResponse({ type: OverheadCostResponseDto })
+  @ApiNotFoundResponse({ description: 'Overhead cost not found' })
   async findOne(@Param('id') id: string) {
     return this.service.findById(id);
   }
@@ -51,6 +84,8 @@ export class OverheadCostController {
   @Post()
   @Roles('admin')
   @ApiOperation({ summary: 'Create overhead cost entry' })
+  @ApiCreatedResponse({ type: OverheadCostResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async create(@Body() dto: CreateOverheadCostDto, @CurrentUser() user: any) {
     return this.service.create(dto, user.orgId);
   }
@@ -58,6 +93,8 @@ export class OverheadCostController {
   @Patch(':id')
   @Roles('admin')
   @ApiOperation({ summary: 'Update overhead cost entry' })
+  @ApiOkResponse({ type: OverheadCostResponseDto })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async update(@Param('id') id: string, @Body() dto: UpdateOverheadCostDto) {
     return this.service.update(id, dto);
   }
@@ -66,6 +103,8 @@ export class OverheadCostController {
   @Roles('admin')
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Delete overhead cost entry' })
+  @ApiNoContentResponse({ description: 'Overhead cost deleted' })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async remove(@Param('id') id: string) {
     await this.service.remove(id);
   }

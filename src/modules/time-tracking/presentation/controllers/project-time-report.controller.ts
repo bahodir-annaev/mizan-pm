@@ -5,7 +5,15 @@ import {
   UseGuards,
   ParseUUIDPipe,
 } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+  ApiNotFoundResponse,
+} from '@nestjs/swagger';
 import { TimeTrackingService } from '../../application/services/time-tracking.service';
 import { JwtAuthGuard } from '../../../identity/infrastructure/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../identity/infrastructure/guards/roles.guard';
@@ -16,12 +24,25 @@ import { CurrentUser } from '../../../identity/infrastructure/decorators/current
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('projects/:id/time-report')
+@ApiUnauthorizedResponse({ description: 'Unauthorized' })
 export class ProjectTimeReportController {
   constructor(private readonly timeTrackingService: TimeTrackingService) {}
 
   @Get()
   @Roles('manager')
   @ApiOperation({ summary: 'Get aggregated time report for a project' })
+  @ApiOkResponse({
+    schema: {
+      example: {
+        projectId: 'uuid',
+        totalHours: 120.5,
+        byUser: [{ userId: 'uuid', name: 'Jane Doe', hours: 60.25 }],
+        byTask: [{ taskId: 'uuid', title: 'Task A', hours: 30.0 }],
+      },
+    },
+  })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
+  @ApiNotFoundResponse({ description: 'Project not found' })
   async getReport(
     @Param('id', ParseUUIDPipe) projectId: string,
     @CurrentUser() user: { id: string; roles: string[] },

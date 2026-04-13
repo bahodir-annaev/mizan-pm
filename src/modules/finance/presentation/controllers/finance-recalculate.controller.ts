@@ -3,7 +3,14 @@ import {
   Body, Param, UseGuards,
   HttpCode, HttpStatus,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiOkResponse,
+  ApiUnauthorizedResponse,
+  ApiForbiddenResponse,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../../identity/infrastructure/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../identity/infrastructure/guards/roles.guard';
 import { Roles } from '../../../identity/infrastructure/decorators/roles.decorator';
@@ -16,6 +23,7 @@ import { RecalculateMonthlyCostsDto } from '../../application/dtos/recalculate-m
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, RolesGuard)
 @Controller('finance/recalculate')
+@ApiUnauthorizedResponse({ description: 'Unauthorized' })
 export class FinanceRecalculateController {
   constructor(
     private readonly scheduler: FinanceSchedulerService,
@@ -26,6 +34,8 @@ export class FinanceRecalculateController {
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Manually trigger nightly hourly rate recalculation' })
+  @ApiOkResponse({ description: 'Recalculation triggered', schema: { example: { message: 'Hourly rate recalculation triggered' } } })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async triggerHourlyRates() {
     await this.scheduler.triggerHourlyRateRecalculation();
     return { message: 'Hourly rate recalculation triggered' };
@@ -35,6 +45,8 @@ export class FinanceRecalculateController {
   @Roles('admin')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Manually trigger monthly cost roll-up for a specific period' })
+  @ApiOkResponse({ description: 'Roll-up triggered', schema: { example: { message: 'Monthly costs rolled up for 2026-4' } } })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async triggerMonthlyCosts(@Body() dto: RecalculateMonthlyCostsDto) {
     await this.scheduler.triggerMonthlyCostRollup(dto.year, dto.month);
     return { message: `Monthly costs rolled up for ${dto.year}-${dto.month}` };
@@ -44,6 +56,8 @@ export class FinanceRecalculateController {
   @Roles('manager')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({ summary: 'Recalculate plan and unfinalized costs for a project' })
+  @ApiOkResponse({ description: 'Recalculation triggered', schema: { example: { message: 'Project costs recalculated for 2026-4' } } })
+  @ApiForbiddenResponse({ description: 'Insufficient role' })
   async triggerProjectRecalculate(
     @Param('projectId') projectId: string,
     @CurrentUser() user: any,

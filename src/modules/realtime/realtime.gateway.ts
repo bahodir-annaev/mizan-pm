@@ -9,6 +9,9 @@ import { Server, Socket } from 'socket.io';
 import { Injectable, Logger } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import { JwtService } from '@nestjs/jwt';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../identity/domain/entities/user.entity';
 
 @Injectable()
 @WebSocketGateway({
@@ -21,7 +24,14 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   private readonly logger = new Logger(RealtimeGateway.name);
 
-  constructor(private readonly jwtService: JwtService) {}
+  /** userId → set of socketIds (handles multiple tabs/devices) */
+  private readonly onlineUsers = new Map<string, Set<string>>();
+
+  constructor(
+    private readonly jwtService: JwtService,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+  ) {}
 
   async handleConnection(client: Socket) {
     try {
@@ -44,7 +54,22 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
         client.join(`org:${payload.orgId}`);
       }
 
-      this.logger.log(`Client connected: ${payload.sub}`);
+      // Track online presence
+      const userId: string = payload.sub;
+      if (!this.onlineUsers.has(userId)) {
+        this.onlineUsers.set(userId, new Set());
+      }
+      this.onlineUsers.get(userId)!.add(client.id);
+
+      // Update lastActiveAt in DB (fire-and-forget)
+      this.userRepo.update(userId, { lastActiveAt: new Date() }).catch(() => undefined);
+
+      // Broadcast to org that this user came online
+      if (payload.orgId) {
+        this.server?.to(`org:${payload.orgId}`).emit('user:online', { userId });
+      }
+
+      this.logger.log(`Client connected: ${userId}`);
     } catch (error) {
       this.logger.warn(`Auth failed for socket: ${error.message}`);
       client.disconnect();
@@ -52,9 +77,28 @@ export class RealtimeGateway implements OnGatewayConnection, OnGatewayDisconnect
   }
 
   handleDisconnect(client: Socket) {
-    if (client.data.userId) {
-      this.logger.log(`Client disconnected: ${client.data.userId}`);
+    const userId: string | undefined = client.data.userId;
+    const orgId: string | undefined = client.data.orgId;
+
+    if (userId) {
+      const sockets = this.onlineUsers.get(userId);
+      if (sockets) {
+        sockets.delete(client.id);
+        if (sockets.size === 0) {
+          this.onlineUsers.delete(userId);
+          // Last connection closed — user is now offline
+          if (orgId) {
+            this.server?.to(`org:${orgId}`).emit('user:offline', { userId });
+          }
+        }
+      }
+      this.logger.log(`Client disconnected: ${userId}`);
     }
+  }
+
+  /** Returns the set of user IDs currently online. */
+  getOnlineUserIds(): string[] {
+    return Array.from(this.onlineUsers.keys());
   }
 
   @SubscribeMessage('join:project')

@@ -8,6 +8,12 @@ export class CreateTeamDto {
   @MaxLength(100)
   name: string;
 
+  @ApiPropertyOptional({ description: 'Short identifier code for the team', example: 'ENG-01', maxLength: 20 })
+  @IsString()
+  @IsOptional()
+  @MaxLength(20)
+  code?: string;
+
   @ApiPropertyOptional()
   @IsString()
   @IsOptional()

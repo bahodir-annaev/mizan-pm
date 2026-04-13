@@ -51,6 +51,7 @@ export class TeamService {
   async create(dto: CreateTeamDto, currentUser: CurrentUser): Promise<Team> {
     const team = new Team();
     team.name = dto.name;
+    team.code = dto.code ?? null;
     team.description = dto.description ?? null;
     team.createdBy = currentUser.id;
 

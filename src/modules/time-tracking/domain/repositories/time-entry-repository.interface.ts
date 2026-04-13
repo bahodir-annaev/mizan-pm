@@ -23,6 +23,7 @@ export interface ITimeEntryRepository {
   findActiveByUser(userId: string): Promise<TimeEntry | null>;
   findActiveByUserAndTask(userId: string, taskId: string): Promise<TimeEntry | null>;
   findAllActive(): Promise<TimeEntry[]>;
+  findActiveByTask(taskId: string): Promise<TimeEntry[]>;
   save(entry: TimeEntry): Promise<TimeEntry>;
   remove(entry: TimeEntry): Promise<void>;
   findByTask(taskId: string, skip: number, take: number): Promise<[TimeEntry[], number]>;
