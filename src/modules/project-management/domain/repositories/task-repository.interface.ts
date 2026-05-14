@@ -12,6 +12,7 @@ export interface TaskFilterParams {
   sortBy?: string;
   sortOrder?: 'ASC' | 'DESC';
   maxDepth?: number;
+  gantt?: boolean;
 }
 
 export interface ITaskRepository {

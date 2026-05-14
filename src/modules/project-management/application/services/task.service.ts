@@ -19,6 +19,7 @@ import {
 import { ProjectService } from './project.service';
 import { TeamService } from '../../../organization/application/services/team.service';
 import { TeamMembership } from '../../../organization/domain/entities/team-membership.entity';
+import { TeamRole } from '../../../organization/domain/entities/team-role.enum';
 import { CreateTaskDto } from '../dtos/create-task.dto';
 import { UpdateTaskDto } from '../dtos/update-task.dto';
 import { MoveTaskDto } from '../dtos/move-task.dto';
@@ -68,7 +69,7 @@ export class TaskService {
   async create(dto: CreateTaskDto, currentUser: CurrentUser): Promise<Task> {
     const project = await this.projectService.findById(dto.projectId);
     if (project.teamId) {
-      await this.assertTeamMemberOrAdmin(project.teamId, currentUser);
+      await this.assertTaskCreatorPermission(project.teamId, currentUser);
     }
 
     let materializedPath = '';
@@ -110,15 +111,18 @@ export class TaskService {
     task.volume = dto.volume ?? null;
     task.unitOfMeasure = dto.unitOfMeasure ?? null;
     task.assigneeId = dto.assigneeId ?? null;
+    task.teamId = dto.teamId ?? project.teamId ?? null;
     task.code = code;
     task.startDate = dto.startDate ? new Date(dto.startDate) : null;
     task.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    task.deliveryDate = dto.deliveryDate ? new Date(dto.deliveryDate) : null;
     task.materializedPath = materializedPath;
     task.depth = depth;
     task.position = maxPosition + 1;
     task.createdBy = currentUser.id;
 
     const saved = await this.taskRepository.save(task);
+    await this.propagateDueDateToAncestors(saved);
     const result = await this.taskRepository.findById(saved.id);
     this.eventEmitter.emit('task.created', {
       task: result,
@@ -178,8 +182,14 @@ export class TaskService {
       task.startDate = dto.startDate ? new Date(dto.startDate) : null;
     if (dto.dueDate !== undefined)
       task.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    if (dto.deliveryDate !== undefined)
+      task.deliveryDate = dto.deliveryDate ? new Date(dto.deliveryDate) : null;
 
     const saved = await this.taskRepository.save(task);
+
+    if (dto.dueDate !== undefined) {
+      await this.propagateDueDateToAncestors(saved);
+    }
 
     if (dto.status !== undefined && dto.status !== oldStatus) {
       this.eventEmitter.emit('task.status_changed', {
@@ -255,6 +265,7 @@ export class TaskService {
       sortBy: filterDto.sortBy,
       sortOrder: filterDto.sortOrder,
       maxDepth: filterDto.depth ?? 0,
+      gantt: filterDto.gantt,
     };
 
     const [tasks, total] = await this.taskRepository.findByProject(
@@ -550,6 +561,27 @@ export class TaskService {
     }
   }
 
+  private async assertTaskCreatorPermission(
+    teamId: string | null,
+    currentUser: CurrentUser,
+  ): Promise<void> {
+    const isAdmin = currentUser.roles.some((r) => ADMIN_ROLES.includes(r));
+    if (isAdmin) return;
+    if (!teamId) return;
+
+    const membership = await this.membershipRepo.findOne({
+      where: { teamId, userId: currentUser.id },
+    });
+    if (
+      !membership ||
+      ![TeamRole.OWNER, TeamRole.ADMIN, TeamRole.MANAGER].includes(membership.teamRole)
+    ) {
+      throw new ForbiddenException(
+        'Only team owners, admins, or managers can create tasks for this project',
+      );
+    }
+  }
+
   private async generateTaskCode(projectId: string): Promise<string> {
     const result = await this.membershipRepo.manager
       .createQueryBuilder()
@@ -559,6 +591,19 @@ export class TaskService {
       .getRawOne();
     const count = parseInt(result?.count || '0', 10) + 1;
     return `TSK-${count.toString().padStart(3, '0')}`;
+  }
+
+  private async propagateDueDateToAncestors(task: Task): Promise<void> {
+    if (!task.dueDate || !task.parentId) return;
+
+    const parent = await this.taskRepository.findById(task.parentId);
+    if (!parent) return;
+
+    if (!parent.dueDate || task.dueDate > parent.dueDate) {
+      parent.dueDate = task.dueDate;
+      await this.taskRepository.save(parent);
+      await this.propagateDueDateToAncestors(parent);
+    }
   }
 
   private buildTree(tasks: Task[]): any[] {

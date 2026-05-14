@@ -4,6 +4,7 @@ import {
   NotFoundException,
   ForbiddenException,
   BadRequestException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EventEmitter2 } from '@nestjs/event-emitter';
@@ -12,14 +13,20 @@ import { Project } from '../../domain/entities/project.entity';
 import { ProjectStatus } from '../../domain/entities/project-status.enum';
 import { ProjectMember } from '../../domain/entities/project-member.entity';
 import {
+  ProjectTeamAssignment,
+  AssignmentStatus,
+} from '../../domain/entities/project-team-assignment.entity';
+import {
   IProjectRepository,
   PROJECT_REPOSITORY,
 } from '../../domain/repositories/project-repository.interface';
 import { TeamMembership } from '../../../organization/domain/entities/team-membership.entity';
+import { TeamRole } from '../../../organization/domain/entities/team-role.enum';
 import { TeamService } from '../../../organization/application/services/team.service';
 import { CreateProjectDto } from '../dtos/create-project.dto';
 import { UpdateProjectDto } from '../dtos/update-project.dto';
 import { ProjectFilterDto } from '../dtos/project-filter.dto';
+import { AssignProjectTeamDto } from '../dtos/assign-project-team.dto';
 import {
   PaginatedResult,
   PaginationMeta,
@@ -56,6 +63,8 @@ export class ProjectService {
     private readonly membershipRepo: Repository<TeamMembership>,
     @InjectRepository(ProjectMember)
     private readonly projectMemberRepo: Repository<ProjectMember>,
+    @InjectRepository(ProjectTeamAssignment)
+    private readonly teamAssignmentRepo: Repository<ProjectTeamAssignment>,
     private readonly teamService: TeamService,
     private readonly eventEmitter: EventEmitter2,
   ) {}
@@ -92,6 +101,7 @@ export class ProjectService {
     project.color = dto.color ?? null;
     project.startDate = dto.startDate ? new Date(dto.startDate) : null;
     project.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    project.deliveryDate = dto.deliveryDate ? new Date(dto.deliveryDate) : null;
 
     const saved = await this.projectRepository.save(project);
 
@@ -101,6 +111,16 @@ export class ProjectService {
     member.userId = currentUser.id;
     member.role = 'owner';
     await this.projectMemberRepo.save(member);
+
+    if (saved.teamId) {
+      const assignment = new ProjectTeamAssignment();
+      assignment.projectId = saved.id;
+      assignment.teamId = saved.teamId;
+      assignment.status = AssignmentStatus.ACTIVE;
+      assignment.activatedAt = new Date();
+      assignment.assignedBy = currentUser.id;
+      await this.teamAssignmentRepo.save(assignment);
+    }
 
     const result = await this.projectRepository.findById(saved.id);
     this.eventEmitter.emit('project.created', {
@@ -204,6 +224,8 @@ export class ProjectService {
       project.startDate = dto.startDate ? new Date(dto.startDate) : null;
     if (dto.dueDate !== undefined)
       project.dueDate = dto.dueDate ? new Date(dto.dueDate) : null;
+    if (dto.deliveryDate !== undefined)
+      project.deliveryDate = dto.deliveryDate ? new Date(dto.deliveryDate) : null;
 
     const saved = await this.projectRepository.save(project);
     this.eventEmitter.emit('project.updated', {
@@ -273,6 +295,102 @@ export class ProjectService {
     await this.projectMemberRepo.remove(member);
   }
 
+  // --- Team Assignment ---
+
+  async assignTeam(
+    projectId: string,
+    dto: AssignProjectTeamDto,
+    currentUser: CurrentUser,
+  ): Promise<ProjectTeamAssignment> {
+    const project = await this.findById(projectId);
+    await this.assertTeamAssignmentPermission(project, currentUser);
+    await this.teamService.findById(dto.teamId);
+
+    const existingPending = await this.teamAssignmentRepo.findOne({
+      where: { projectId, status: AssignmentStatus.PENDING },
+    });
+    if (existingPending) {
+      throw new ConflictException('A next team is already queued for this project');
+    }
+
+    const assignment = new ProjectTeamAssignment();
+    assignment.projectId = projectId;
+    assignment.teamId = dto.teamId;
+    assignment.assignedBy = currentUser.id;
+    assignment.notes = dto.notes ?? null;
+
+    if (!project.teamId) {
+      assignment.status = AssignmentStatus.ACTIVE;
+      assignment.activatedAt = new Date();
+      project.teamId = dto.teamId;
+      await this.projectRepository.save(project);
+    } else {
+      assignment.status = AssignmentStatus.PENDING;
+    }
+
+    const saved = await this.teamAssignmentRepo.save(assignment);
+
+    this.eventEmitter.emit('project.team_assigned', {
+      project,
+      assignment: saved,
+      actorId: currentUser.id,
+    });
+
+    return this.teamAssignmentRepo.findOne({
+      where: { id: saved.id },
+      relations: ['team'],
+    });
+  }
+
+  async activateNextTeam(
+    projectId: string,
+    currentUser: CurrentUser,
+  ): Promise<ProjectTeamAssignment> {
+    const project = await this.findById(projectId);
+    await this.assertTeamAssignmentPermission(project, currentUser);
+
+    const pending = await this.teamAssignmentRepo.findOne({
+      where: { projectId, status: AssignmentStatus.PENDING },
+      relations: ['team'],
+    });
+    if (!pending) {
+      throw new NotFoundException('No pending team assignment found for this project');
+    }
+
+    const active = await this.teamAssignmentRepo.findOne({
+      where: { projectId, status: AssignmentStatus.ACTIVE },
+    });
+    if (active) {
+      active.status = AssignmentStatus.COMPLETED;
+      active.completedAt = new Date();
+      await this.teamAssignmentRepo.save(active);
+    }
+
+    pending.status = AssignmentStatus.ACTIVE;
+    pending.activatedAt = new Date();
+    await this.teamAssignmentRepo.save(pending);
+
+    project.teamId = pending.teamId;
+    await this.projectRepository.save(project);
+
+    this.eventEmitter.emit('project.team_transitioned', {
+      project,
+      assignment: pending,
+      actorId: currentUser.id,
+    });
+
+    return pending;
+  }
+
+  async getTeamAssignments(projectId: string): Promise<ProjectTeamAssignment[]> {
+    await this.findById(projectId);
+    return this.teamAssignmentRepo.find({
+      where: { projectId },
+      relations: ['team'],
+      order: { createdAt: 'DESC' },
+    });
+  }
+
   private validateStatusTransition(
     currentStatus: ProjectStatus,
     newStatus: ProjectStatus,
@@ -281,6 +399,38 @@ export class ProjectService {
     if (!allowed || !allowed.includes(newStatus)) {
       throw new BadRequestException(
         `Invalid status transition from '${currentStatus}' to '${newStatus}'`,
+      );
+    }
+  }
+
+  private async assertTeamAssignmentPermission(
+    project: Project,
+    currentUser: CurrentUser,
+  ): Promise<void> {
+    const isAdmin = currentUser.roles.some((r) => ADMIN_ROLES.includes(r));
+    if (isAdmin) return;
+
+    // No current team: project creator or any system manager can assign the first team
+    if (!project.teamId) {
+      const isManager = currentUser.roles.some((r) =>
+        ['manager', 'admin', 'owner'].includes(r),
+      );
+      if (isManager || project.createdBy === currentUser.id) return;
+      throw new ForbiddenException(
+        'Only the project creator or a manager can assign the first team',
+      );
+    }
+
+    // Has a current team: must be that team's owner/admin/manager
+    const membership = await this.membershipRepo.findOne({
+      where: { teamId: project.teamId, userId: currentUser.id },
+    });
+    if (
+      !membership ||
+      ![TeamRole.OWNER, TeamRole.ADMIN, TeamRole.MANAGER].includes(membership.teamRole)
+    ) {
+      throw new ForbiddenException(
+        'Only the current team\'s owner, admin, or manager can assign the next team',
       );
     }
   }

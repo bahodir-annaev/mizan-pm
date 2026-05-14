@@ -1,5 +1,5 @@
-import { IsOptional, IsEnum, IsUUID, IsString, IsIn, IsInt, Min, Max } from 'class-validator';
-import { Type } from 'class-transformer';
+import { IsOptional, IsEnum, IsUUID, IsString, IsIn, IsInt, IsBoolean, Min, Max } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { PaginationQueryDto } from '../../../../shared/application/pagination.dto';
 import { TaskStatus } from '../../domain/entities/task-status.enum';
@@ -48,4 +48,10 @@ export class TaskFilterDto extends PaginationQueryDto {
   @Max(10)
   @Type(() => Number)
   depth?: number;
+
+  @ApiPropertyOptional({ type: Boolean, description: 'Include Gantt fields (totalInProgressSeconds)' })
+  @IsOptional()
+  @IsBoolean()
+  @Transform(({ value }) => value === 'true' || value === true)
+  gantt?: boolean;
 }

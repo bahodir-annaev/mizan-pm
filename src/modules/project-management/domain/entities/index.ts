@@ -4,3 +4,4 @@ export { Task } from './task.entity';
 export { TaskAssignee } from './task-assignee.entity';
 export { TaskStatus } from './task-status.enum';
 export { TaskPriority } from './task-priority.enum';
+export { TaskStatusLog } from './task-status-log.entity';

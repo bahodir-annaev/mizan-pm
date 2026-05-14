@@ -4,6 +4,17 @@ import { TaskPriority } from '../../domain/entities/task-priority.enum';
 import { WorkType } from '../../domain/entities/work-type.enum';
 import { AcceptanceStatus } from '../../domain/entities/acceptance-status.enum';
 
+export class TaskTeamDto {
+  @ApiProperty({ example: 'team-uuid', format: 'uuid' })
+  id: string;
+
+  @ApiProperty({ example: 'Architecture Team' })
+  name: string;
+
+  @ApiPropertyOptional({ example: 'ARCH', nullable: true })
+  code: string | null;
+}
+
 export class TaskAssigneeResponseDto {
   @ApiProperty({ example: 'user-uuid', format: 'uuid' })
   userId: string;
@@ -58,6 +69,12 @@ export class TaskResponseDto {
   @ApiProperty({ example: 'project-uuid', format: 'uuid' })
   projectId: string;
 
+  @ApiPropertyOptional({ example: 'team-uuid', format: 'uuid', nullable: true })
+  teamId: string | null;
+
+  @ApiPropertyOptional({ type: TaskTeamDto, nullable: true })
+  team?: TaskTeamDto | null;
+
   @ApiPropertyOptional({ example: 'parent-task-uuid', format: 'uuid', nullable: true })
   parentId: string | null;
 
@@ -84,6 +101,9 @@ export class TaskResponseDto {
 
   @ApiProperty({ example: '2026-04-11T10:30:00Z' })
   updatedAt: Date;
+
+  @ApiPropertyOptional({ example: 3600, nullable: true, description: 'Total seconds spent in IN_PROGRESS status across all sessions' })
+  totalInProgressSeconds?: number | null;
 
   @ApiPropertyOptional({ type: [TaskAssigneeResponseDto], description: 'Loaded when requested' })
   assignees?: TaskAssigneeResponseDto[];

@@ -96,4 +96,9 @@ export class UpdateProjectDto {
   @IsDateString()
   @IsOptional()
   dueDate?: string;
+
+  @ApiPropertyOptional()
+  @IsDateString()
+  @IsOptional()
+  deliveryDate?: string;
 }

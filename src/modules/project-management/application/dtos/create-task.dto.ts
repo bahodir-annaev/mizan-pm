@@ -58,6 +58,11 @@ export class CreateTaskDto {
   @IsOptional()
   unitOfMeasure?: string;
 
+  @ApiPropertyOptional({ example: 'uuid-of-team', format: 'uuid', description: 'Team ID — defaults to the project team if omitted' })
+  @IsUUID()
+  @IsOptional()
+  teamId?: string;
+
   @ApiPropertyOptional({ example: 'uuid-of-user', format: 'uuid', description: 'Initial assignee user ID' })
   @IsUUID()
   @IsOptional()
@@ -72,4 +77,9 @@ export class CreateTaskDto {
   @IsDateString()
   @IsOptional()
   dueDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-07-15', description: 'Actual delivery date (set manually)' })
+  @IsDateString()
+  @IsOptional()
+  deliveryDate?: string;
 }

@@ -5,10 +5,13 @@ import { Project } from './domain/entities/project.entity';
 import { Task } from './domain/entities/task.entity';
 import { TaskAssignee } from './domain/entities/task-assignee.entity';
 import { ProjectMember } from './domain/entities/project-member.entity';
+import { ProjectTeamAssignment } from './domain/entities/project-team-assignment.entity';
 import { TaskParticipant } from './domain/entities/task-participant.entity';
 import { TaskDependency } from './domain/entities/task-dependency.entity';
 import { ChecklistItem } from './domain/entities/checklist-item.entity';
 import { Comment } from './domain/entities/comment.entity';
+import { TaskStatusLog } from './domain/entities/task-status-log.entity';
+import { TaskStatusDurationListener } from './application/listeners/task-status-duration.listener';
 
 import { PROJECT_REPOSITORY } from './domain/repositories/project-repository.interface';
 import { TypeOrmProjectRepository } from './infrastructure/persistence/typeorm-project.repository';
@@ -30,9 +33,9 @@ import { TeamMembership } from '../organization/domain/entities/team-membership.
 @Module({
   imports: [
     TypeOrmModule.forFeature([
-      Project, Task, TaskAssignee, ProjectMember,
+      Project, Task, TaskAssignee, ProjectMember, ProjectTeamAssignment,
       TaskParticipant, TaskDependency, ChecklistItem, Comment,
-      TeamMembership,
+      TeamMembership, TaskStatusLog,
     ]),
     IdentityModule,
     OrganizationModule,
@@ -42,6 +45,7 @@ import { TeamMembership } from '../organization/domain/entities/team-membership.
     ProjectService,
     TaskService,
     TaskFeaturesService,
+    TaskStatusDurationListener,
     {
       provide: PROJECT_REPOSITORY,
       useClass: TypeOrmProjectRepository,

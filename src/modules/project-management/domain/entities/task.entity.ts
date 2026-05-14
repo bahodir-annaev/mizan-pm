@@ -13,6 +13,7 @@ import { AcceptanceStatus } from './acceptance-status.enum';
 import { TaskAssignee } from './task-assignee.entity';
 import { Project } from './project.entity';
 import { User } from '../../../identity/domain/entities/user.entity';
+import { Team } from '../../../organization/domain/entities/team.entity';
 
 @Entity('tasks')
 export class Task extends AggregateRoot {
@@ -65,6 +66,9 @@ export class Task extends AggregateRoot {
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate: Date | null;
 
+  @Column({ name: 'delivery_date', type: 'date', nullable: true })
+  deliveryDate: Date | null;
+
   // --- Self-referencing hierarchy ---
 
   @Column({ name: 'parent_id', nullable: true })
@@ -87,6 +91,13 @@ export class Task extends AggregateRoot {
   position: number;
 
   // --- Relations ---
+
+  @Column({ name: 'team_id', nullable: true })
+  teamId: string | null;
+
+  @ManyToOne(() => Team, { nullable: true })
+  @JoinColumn({ name: 'team_id' })
+  team: Team | null;
 
   @Column({ name: 'project_id' })
   projectId: string;

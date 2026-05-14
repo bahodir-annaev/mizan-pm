@@ -3,11 +3,24 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, SelectQueryBuilder } from 'typeorm';
 import { Task } from '../../domain/entities/task.entity';
 import { TaskAssignee } from '../../domain/entities/task-assignee.entity';
+import { TaskStatusLog } from '../../domain/entities/task-status-log.entity';
 import { TaskStatus } from '../../domain/entities/task-status.enum';
 import {
   ITaskRepository,
   TaskFilterParams,
 } from '../../domain/repositories/task-repository.interface';
+
+// Correlated subquery that returns total seconds spent IN_PROGRESS for a task alias.
+// Sums closed session duration_seconds plus the live elapsed time of any open session.
+const IN_PROGRESS_SECONDS_SUBQUERY = `(
+  SELECT COALESCE(SUM(tsl.duration_seconds), 0)
+       + COALESCE(
+           EXTRACT(EPOCH FROM NOW() - MAX(tsl.started_at) FILTER (WHERE tsl.ended_at IS NULL))::integer,
+           0
+         )
+  FROM task_status_logs tsl
+  WHERE tsl.task_id = task.id AND tsl.status = 'IN_PROGRESS'
+)`;
 
 @Injectable()
 export class TypeOrmTaskRepository implements ITaskRepository {
@@ -16,15 +29,32 @@ export class TypeOrmTaskRepository implements ITaskRepository {
     private readonly taskRepo: Repository<Task>,
     @InjectRepository(TaskAssignee)
     private readonly assigneeRepo: Repository<TaskAssignee>,
+    @InjectRepository(TaskStatusLog)
+    private readonly statusLogRepo: Repository<TaskStatusLog>,
   ) {}
 
   // --- Core CRUD ---
 
-  async findById(id: string, relations?: string[]): Promise<Task | null> {
-    return this.taskRepo.findOne({
-      where: { id },
-      relations: relations ?? ['creator', 'project', 'assignee', 'participants', 'participants.user'],
-    });
+  async findById(id: string, _relations?: string[]): Promise<Task | null> {
+    const { entities, raw } = await this.taskRepo
+      .createQueryBuilder('task')
+      .where('task.id = :id', { id })
+      .leftJoinAndSelect('task.creator', 'creator')
+      .leftJoinAndSelect('task.project', 'project')
+      .leftJoinAndSelect('task.team', 'team')
+      .leftJoinAndSelect('task.assignee', 'assignee')
+      .leftJoinAndSelect('task.participants', 'participants')
+      .leftJoinAndSelect('participants.user', 'participantUser')
+      .addSelect(IN_PROGRESS_SECONDS_SUBQUERY, 'totalInProgressSeconds')
+      .getRawAndEntities();
+
+    if (!entities[0]) return null;
+    const task = entities[0];
+    (task as any).totalInProgressSeconds =
+      raw[0]?.totalInProgressSeconds != null
+        ? parseInt(raw[0].totalInProgressSeconds, 10)
+        : 0;
+    return task;
   }
 
   async save(task: Task): Promise<Task> {
@@ -49,7 +79,7 @@ export class TypeOrmTaskRepository implements ITaskRepository {
   async findChildren(parentId: string): Promise<Task[]> {
     return this.taskRepo.find({
       where: { parentId },
-      relations: ['creator', 'assignee', 'participants', 'participants.user'],
+      relations: ['creator', 'team', 'assignee', 'participants', 'participants.user'],
       order: { position: 'ASC' },
     });
   }
@@ -61,6 +91,7 @@ export class TypeOrmTaskRepository implements ITaskRepository {
         prefix: `${materializedPathPrefix}%`,
       })
       .leftJoinAndSelect('task.creator', 'creator')
+      .leftJoinAndSelect('task.team', 'team')
       .leftJoinAndSelect('task.assignee', 'assignee')
       .leftJoinAndSelect('task.participants', 'participants')
       .leftJoinAndSelect('participants.user', 'participantUser')
@@ -83,6 +114,7 @@ export class TypeOrmTaskRepository implements ITaskRepository {
     this.applyFilters(qb, filters);
 
     qb.leftJoinAndSelect('task.creator', 'creator')
+      .leftJoinAndSelect('task.team', 'team')
       .leftJoinAndSelect('task.assignee', 'assignee')
       .leftJoinAndSelect('task.participants', 'participants')
       .leftJoinAndSelect('participants.user', 'participantUser')
@@ -107,6 +139,7 @@ export class TypeOrmTaskRepository implements ITaskRepository {
     this.applyFilters(qb, filters);
 
     qb.leftJoinAndSelect('task.creator', 'creator')
+      .leftJoinAndSelect('task.team', 'team')
       .leftJoinAndSelect('task.assignee', 'assignee')
       .leftJoinAndSelect('task.participants', 'participants')
       .leftJoinAndSelect('participants.user', 'participantUser')
@@ -115,7 +148,13 @@ export class TypeOrmTaskRepository implements ITaskRepository {
 
     this.applySorting(qb, filters);
 
-    return qb.getManyAndCount();
+    const [tasks, count] = await qb.getManyAndCount();
+
+    if (filters.gantt && tasks.length > 0) {
+      await this.attachInProgressSeconds(tasks);
+    }
+
+    return [tasks, count];
   }
 
   // --- Cross-project user task list ---
@@ -143,6 +182,7 @@ export class TypeOrmTaskRepository implements ITaskRepository {
 
     qb.leftJoinAndSelect('task.creator', 'creator')
       .leftJoinAndSelect('task.project', 'project')
+      .leftJoinAndSelect('task.team', 'team')
       .leftJoinAndSelect('task.assignee', 'assignee')
       .leftJoinAndSelect('task.participants', 'participants')
       .leftJoinAndSelect('participants.user', 'participantUser')
@@ -274,6 +314,28 @@ export class TypeOrmTaskRepository implements ITaskRepository {
   }
 
   // --- Private helpers ---
+
+  private async attachInProgressSeconds(tasks: Task[]): Promise<void> {
+    const ids = tasks.map((t) => t.id);
+    const rows: { task_id: string; total: string }[] =
+      await this.statusLogRepo.query(
+        `SELECT task_id,
+                COALESCE(SUM(duration_seconds), 0)
+                + COALESCE(
+                    EXTRACT(EPOCH FROM NOW() - MAX(started_at) FILTER (WHERE ended_at IS NULL))::integer,
+                    0
+                  ) AS total
+         FROM task_status_logs
+         WHERE task_id = ANY($1) AND status = 'IN_PROGRESS'
+         GROUP BY task_id`,
+        [ids],
+      );
+
+    const map = new Map(rows.map((r) => [r.task_id, parseInt(r.total, 10)]));
+    for (const task of tasks) {
+      (task as any).totalInProgressSeconds = map.get(task.id) ?? 0;
+    }
+  }
 
   private applyFilters(
     qb: SelectQueryBuilder<Task>,

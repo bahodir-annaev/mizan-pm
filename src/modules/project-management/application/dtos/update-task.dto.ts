@@ -84,4 +84,9 @@ export class UpdateTaskDto {
   @IsDateString()
   @IsOptional()
   dueDate?: string;
+
+  @ApiPropertyOptional({ example: '2026-07-15', description: 'Actual delivery date (set manually)' })
+  @IsDateString()
+  @IsOptional()
+  deliveryDate?: string;
 }

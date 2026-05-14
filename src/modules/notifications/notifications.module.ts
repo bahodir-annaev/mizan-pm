@@ -8,10 +8,11 @@ import { IdentityModule } from '../identity/identity.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { Task } from '../project-management/domain/entities/task.entity';
 import { TaskAssignee } from '../project-management/domain/entities/task-assignee.entity';
+import { TeamMembership } from '../organization/domain/entities/team-membership.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Notification, Task, TaskAssignee]),
+    TypeOrmModule.forFeature([Notification, Task, TaskAssignee, TeamMembership]),
     IdentityModule,
     RealtimeModule,
   ],

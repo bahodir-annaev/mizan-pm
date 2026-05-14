@@ -30,6 +30,7 @@ import { ProjectService } from '../../application/services/project.service';
 import { CreateProjectDto } from '../../application/dtos/create-project.dto';
 import { UpdateProjectDto } from '../../application/dtos/update-project.dto';
 import { ProjectFilterDto } from '../../application/dtos/project-filter.dto';
+import { AssignProjectTeamDto } from '../../application/dtos/assign-project-team.dto';
 import { ProjectResponseDto, ProjectMemberResponseDto } from '../../application/dtos/project-response.dto';
 import { JwtAuthGuard } from '../../../identity/infrastructure/guards/jwt-auth.guard';
 import { RolesGuard } from '../../../identity/infrastructure/guards/roles.guard';
@@ -150,5 +151,41 @@ export class ProjectController {
     @Param('userId', ParseUUIDPipe) userId: string,
   ) {
     await this.projectService.removeMember(id, userId);
+  }
+
+  // --- Team Assignments ---
+
+  @Post(':id/team-assignments')
+  @Roles('manager')
+  @ApiOperation({ summary: 'Assign a team to a project (queues as next if project already has an active team)' })
+  @ApiCreatedResponse({ description: 'Assignment created' })
+  @ApiForbiddenResponse({ description: 'Insufficient role or not current team manager' })
+  async assignTeam(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignProjectTeamDto,
+    @CurrentUser() user: any,
+  ) {
+    return this.projectService.assignTeam(id, dto, user);
+  }
+
+  @Post(':id/team-assignments/activate')
+  @Roles('manager')
+  @HttpCode(HttpStatus.OK)
+  @ApiOperation({ summary: 'Activate the pending next team for a project' })
+  @ApiOkResponse({ description: 'Pending assignment activated' })
+  @ApiNotFoundResponse({ description: 'No pending assignment found' })
+  @ApiForbiddenResponse({ description: 'Insufficient role or not current team manager' })
+  async activateNextTeam(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: any,
+  ) {
+    return this.projectService.activateNextTeam(id, user);
+  }
+
+  @Get(':id/team-assignments')
+  @ApiOperation({ summary: 'Get team assignment history for a project' })
+  @ApiOkResponse({ description: 'List of team assignments ordered newest first' })
+  async getTeamAssignments(@Param('id', ParseUUIDPipe) id: string) {
+    return this.projectService.getTeamAssignments(id);
   }
 }

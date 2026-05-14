@@ -4,6 +4,7 @@ import { User } from '../../../identity/domain/entities/user.entity';
 import { Team } from '../../../organization/domain/entities/team.entity';
 import { Organization } from '../../../organization/domain/entities/organization.entity';
 import { Task } from './task.entity';
+import { ProjectTeamAssignment } from './project-team-assignment.entity';
 import { ProjectStatus } from './project-status.enum';
 import { ProjectType } from './project-type.enum';
 import { ProjectSize } from './project-size.enum';
@@ -79,6 +80,9 @@ export class Project extends AggregateRoot {
   @Column({ name: 'due_date', type: 'date', nullable: true })
   dueDate: Date | null;
 
+  @Column({ name: 'delivery_date', type: 'date', nullable: true })
+  deliveryDate: Date | null;
+
   @Column({ name: 'team_id', nullable: true })
   teamId: string | null;
 
@@ -107,4 +111,7 @@ export class Project extends AggregateRoot {
 
   @OneToMany(() => Task, (task) => task.project)
   tasks: Task[];
+
+  @OneToMany(() => ProjectTeamAssignment, (a) => a.project)
+  teamAssignments: ProjectTeamAssignment[];
 }
